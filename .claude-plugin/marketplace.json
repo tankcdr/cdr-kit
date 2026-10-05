@@ -1,0 +1,14 @@
+{
+  "name": "cdr-kit",
+  "owner": {
+    "name": "tankcdr"
+  },
+  "description": "tankcdr's Claude Code kit",
+  "plugins": [
+    {
+      "name": "cdr",
+      "source": ".",
+      "description": "Ship an epic with agent teams, and loop a PR through its AI review."
+    }
+  ]
+}

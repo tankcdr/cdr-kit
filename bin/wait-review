@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Usage: wait-review <pr> <since>   (since: ISO 8601 UTC, e.g. 2026-09-30T17:35:00Z)
+# Env: REPO (owner/name), REVIEW_WORKFLOW and CHECKS_WORKFLOW (the GitHub Actions workflow names; from the repo's
+# .claude/ship-profile.json "repo" and "review" fields), WAIT_MINUTES (default 110).
+# Waits until the review and checks runs on the PR's current head have completed, then prints their
+# results and every comment, inline comment and review posted after <since>, minus the loop's own round
+# comments (<!-- pr-review-loop ... -->). Run it in the background; the session is re-invoked when it exits.
+# Exit 0: both runs completed. Exit 3: no review run appeared for the head within 10 min (comments are
+# still printed). Exit 4: gave up after WAIT_MINUTES (default 110). ship-epic sets WAIT_MINUTES=8 to check
+# about every 10 minutes inside the Bash tool's 10-minute foreground limit.
+set -euo pipefail
+PR=$1
+SINCE=$2
+: "${REPO:?set REPO=owner/name}" "${REVIEW_WORKFLOW:?set REVIEW_WORKFLOW}" "${CHECKS_WORKFLOW:?set CHECKS_WORKFLOW}"
+WAIT_MINUTES=${WAIT_MINUTES:-110}
+start=$(date +%s)
+
+latest() { jq -c --arg w "$1" '[.[] | select(.workflowName == $w)] | first // empty' <<<"$2"; }
+
+code=4
+while (( $(date +%s) - start < WAIT_MINUTES * 60 )); do
+  head=$(gh pr view "$PR" -R "$REPO" --json headRefOid -q .headRefOid)
+  runs=$(gh run list -R "$REPO" --commit "$head" --event pull_request -L 20 --json databaseId,workflowName,status,conclusion,url)
+  review=$(latest "$REVIEW_WORKFLOW" "$runs")
+  checks=$(latest "$CHECKS_WORKFLOW" "$runs")
+  review_done=$([[ -n $review && $(jq -r .status <<<"$review") == completed ]] && echo 1 || echo 0)
+  checks_done=$([[ -n $checks && $(jq -r .status <<<"$checks") == completed ]] && echo 1 || echo 0)
+  if [[ $review_done == 1 && $checks_done == 1 ]]; then code=0; break; fi
+  if [[ -z $review ]] && (( $(date +%s) - start > 10 * 60 )); then code=3; break; fi
+  sleep 30
+done
+
+echo "## Runs on $head"
+for run in "$review" "$checks"; do
+  [[ -n $run ]] && jq -r '"- \(.workflowName): \(.status) \(.conclusion) \(.url)"' <<<"$run"
+done
+[[ -z $review ]] && echo "- $REVIEW_WORKFLOW: no run for this head"
+[[ -z $checks ]] && echo "- $CHECKS_WORKFLOW: no run for this head"
+
+echo
+echo "## Comments since $SINCE"
+{
+  gh api "repos/$REPO/issues/$PR/comments" --paginate | jq -c '.[] | {at: .created_at, who: .user.login, where: "comment", url: .html_url, body}'
+  gh api "repos/$REPO/pulls/$PR/comments" --paginate | jq -c '.[] | {at: .created_at, who: .user.login, where: "\(.path):\(.line // .original_line)", url: .html_url, body}'
+  gh api "repos/$REPO/pulls/$PR/reviews" --paginate | jq -c '.[] | select(.body != "") | {at: .submitted_at, who: .user.login, where: "review \(.state | ascii_downcase)", url: .html_url, body}'
+} | jq -rs --arg since "$SINCE" '
+  map(select(.at > $since and (.body | startswith("<!-- pr-review-loop") | not))) | sort_by(.at)
+  | if length == 0 then "(none)" else map("### \(.who), \(.where), \(.at) (\(.url))\n\n\(.body)\n") | join("\n") end'
+exit $code
