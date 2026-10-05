@@ -1,14 +1,12 @@
 {
   "name": "cdr-kit",
-  "owner": {
-    "name": "tankcdr"
-  },
-  "description": "tankcdr's Claude Code kit",
+  "owner": { "name": "tankcdr", "url": "https://github.com/tankcdr" },
+  "description": "tankcdr's Claude Code plugins: ship GitHub epics with agent teams and loop PRs through AI review.",
   "plugins": [
     {
       "name": "cdr",
       "source": ".",
-      "description": "Ship an epic with agent teams, and loop a PR through its AI review."
+      "description": "Ship a GitHub epic or issue end to end with agent teams, then loop the PR through your AI code review."
     }
   ]
 }

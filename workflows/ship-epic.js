@@ -16,9 +16,8 @@ export const meta = {
 //
 // The coordinator is this script plus Opus decision agents: nothing carries between agents except what the
 // script passes along. Fable advises at two fixed points (the plan, and the epic before its PR), and the Opus
-// agents may spawn the Fable "advisor" subagent for one hard call. Every agent() call names its model inline,
-// because ~/.claude/hooks/agent-model-guard.cjs refuses the script otherwise; keep the two Fable calls as
-// top-level awaits outside any loop.
+// agents may spawn the plugin's Fable cdr:advisor subagent for one hard call. Every agent() call names its model
+// inline, so no agent inherits the session's model; keep the two Fable calls as top-level awaits outside any loop.
 //
 // Everything repo-specific (repo, base branch, gates, worktree setup, review rules, the review workflows and
 // their known flakes) comes from <main checkout>/.claude/ship-profile.json, which the first agent loads.
@@ -79,7 +78,7 @@ const extraGates = (wt) => (P.gates.extra || []).map((g) => ' ' + g.when + ': ' 
 const RULES = [
   'Rules:',
   '- git: ' + GIT + ' -C <worktree> <command>, one git command per Bash call. Never edit the main checkout at ' + ROOT + ' or a worktree that is not yours.',
-  '- Never git stash, reset --hard, clean, or checkout/restore paths: a hook refuses them. To run old code, copy the file aside (git show <rev>:<path> into a scratch file) and swap it in by hand.',
+  '- Never git stash, reset --hard, clean, or checkout/restore paths: other agents share these worktrees and branches, and those commands destroy their work. To run old code, copy the file aside (git show <rev>:<path> into a scratch file) and swap it in by hand.',
   '- No Claude or Claude Code attribution anywhere: no Co-Authored-By trailer, no "Generated with" line.',
   ...P.rules.map((r) => '- ' + r),
   '- Review rules: the feedback entries listed in ' + MEMORY + ' (if it exists); open the ones that touch this change. Always blocking: ' + P.blockingRules.join('; ') + '.',
@@ -173,7 +172,7 @@ Decide:
 - doneWhen: the epic's own Done when lines, verbatim.
 - issuesFile: write the epic body and every planned child's full body into one markdown file (mktemp) for the advisor who reviews this plan, and give its path.
 
-A call you can't settle from the code (a hidden dependency, a split you doubt): spawn subagent_type "advisor" (Fable) for that one decision. Spawn nothing else.`
+A call you can't settle from the code (a hidden dependency, a split you doubt): spawn subagent_type "cdr:advisor" (Fable) for that one decision. Spawn nothing else.`
 
 function planAdvicePrompt(p) {
   return `The coordinator of ${REPO} epic #${EPIC} proposes this build plan. Review it before the teams start.
@@ -297,7 +296,7 @@ Decide:
 - done: true only when you accept nothing and verification is green. The epic coordinator reviews the task next.
 - blocked: empty, unless a human must decide something before this can be built; then say what.
 - summary: what the change does now, in three sentences, for the PR.
-An item back for the second time without progress, or a call you can't make: spawn subagent_type "advisor" (Fable) for that one decision.`
+An item back for the second time without progress, or a call you can't make: spawn subagent_type "cdr:advisor" (Fable) for that one decision.`
 }
 
 function reviewPrompt(task, plan, lead) {
@@ -314,7 +313,7 @@ Their verify commands: ${plan.verify.join('; ')}
 - The docs follow the change.
 - done: every Done when line met (or left to an owner step after deploy, below) and the gates green. Otherwise the gaps (where, problem, fix) go back to the team.
 - blocked: empty, unless a human must decide something before this can merge; then say what. A Done when line that only an owner step after deploy can prove (DNS, a tunnel ingress rule, a live URL, a listing) is not blocked and not a gap: mark it met false with evidence starting "after deploy:" and the exact owner step, and it doesn't stop done.
-A gap you're unsure of: spawn subagent_type "advisor" (Fable) for that one decision.
+A gap you're unsure of: spawn subagent_type "cdr:advisor" (Fable) for that one decision.
 
 ${RULES}`
 }
@@ -531,9 +530,9 @@ async function teamLoop(task) {
   if (plan.blocked) return { status: 'stuck', reason: 'lead: ' + plan.blocked, rounds: 0 }
   let feedback = []
   for (let round = 1; round <= TEAM_ROUNDS; round++) {
-    const impl = need(await agent(implPrompt(task, plan, feedback, round), { model: 'sonnet', effort: 'high', agentType: 'sonnet-implementer', label: task.key + ' implement ' + round, phase: task.phase, schema: IMPL }), task.key + ' implementer')
-    const docs = need(await agent(docsPrompt(task, plan, impl), { model: 'haiku', agentType: 'haiku-documentor', label: task.key + ' document ' + round, phase: task.phase, schema: DOCS }), task.key + ' documenter')
-    const qa = need(await agent(qaPrompt(task, plan, round, feedback), { model: 'opus', effort: 'high', agentType: 'opus-adversary', label: task.key + ' QA ' + round, phase: task.phase, schema: QA }), task.key + ' QA')
+    const impl = need(await agent(implPrompt(task, plan, feedback, round), { model: 'sonnet', effort: 'high', agentType: 'cdr:sonnet-implementer', label: task.key + ' implement ' + round, phase: task.phase, schema: IMPL }), task.key + ' implementer')
+    const docs = need(await agent(docsPrompt(task, plan, impl), { model: 'haiku', agentType: 'cdr:haiku-documentor', label: task.key + ' document ' + round, phase: task.phase, schema: DOCS }), task.key + ' documenter')
+    const qa = need(await agent(qaPrompt(task, plan, round, feedback), { model: 'opus', effort: 'high', agentType: 'cdr:opus-adversary', label: task.key + ' QA ' + round, phase: task.phase, schema: QA }), task.key + ' QA')
     const lead = need(await agent(leadPrompt(task, round, impl, docs, qa), { model: 'opus', effort: 'medium', agentType: 'general-purpose', label: task.key + ' lead ' + round, phase: task.phase, schema: LEAD }), task.key + ' lead')
     if (lead.blocked) return { status: 'stuck', reason: 'lead: ' + lead.blocked, rounds: round }
     if (!lead.done) {
@@ -583,7 +582,7 @@ async function runTrack(track, slot) {
 
 // Plan
 let plan = need(await agent(planPrompt, { model: 'opus', effort: 'xhigh', agentType: 'general-purpose', label: 'coordinator: plan', schema: PLAN }), 'coordinator plan')
-const planAdvice = await agent(planAdvicePrompt(plan), { model: 'fable', effort: 'high', agentType: 'advisor', label: 'advisor: plan', schema: PLAN_ADVICE })
+const planAdvice = await agent(planAdvicePrompt(plan), { model: 'fable', effort: 'high', agentType: 'cdr:advisor', label: 'advisor: plan', schema: PLAN_ADVICE })
 if (!planAdvice) log('The plan advisor returned nothing; going on with the coordinator plan')
 let planProblems = checkPlan(plan)
 if ((planAdvice && !planAdvice.approve) || planProblems.length) {
@@ -632,7 +631,7 @@ if (stuck.length) {
 // Epic check
 phase('Epic check')
 const epicCheck = need(await agent(epicCheckPrompt(), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: 'coordinator: epic check', schema: EPIC_CHECK }), 'epic check')
-const epicAdvice = await agent(epicAdvicePrompt(epicCheck), { model: 'fable', effort: 'high', agentType: 'advisor', label: 'advisor: epic', schema: EPIC_ADVICE })
+const epicAdvice = await agent(epicAdvicePrompt(epicCheck), { model: 'fable', effort: 'high', agentType: 'cdr:advisor', label: 'advisor: epic', schema: EPIC_ADVICE })
 if (!epicAdvice) log('The epic advisor returned nothing; going on with the coordinator check')
 const gaps = epicCheck.gaps.concat(epicAdvice && !epicAdvice.ready ? epicAdvice.gaps : [])
 let gapRun = null
@@ -701,10 +700,10 @@ while (!outcome) {
     log('Review round ' + fixes + ': nothing to fix; re-ran flaky checks ' + t.reruns.join(', '))
     continue
   }
-  const f1 = need(await agent(prFixPrompt(pr.number, t.actionable, null), { model: 'sonnet', effort: 'high', agentType: 'sonnet-implementer', label: 'fix ' + fixes, schema: PR_FIX }), 'fix')
-  const chk = need(await agent(prCheckPrompt(pr.number, t.actionable, f1), { model: 'opus', effort: 'high', agentType: 'opus-adversary', label: 'fix check ' + fixes, schema: PR_CHECK }), 'fix check')
+  const f1 = need(await agent(prFixPrompt(pr.number, t.actionable, null), { model: 'sonnet', effort: 'high', agentType: 'cdr:sonnet-implementer', label: 'fix ' + fixes, schema: PR_FIX }), 'fix')
+  const chk = need(await agent(prCheckPrompt(pr.number, t.actionable, f1), { model: 'opus', effort: 'high', agentType: 'cdr:opus-adversary', label: 'fix check ' + fixes, schema: PR_CHECK }), 'fix check')
   let f2 = null
-  if (chk.problems.length) f2 = need(await agent(prFixPrompt(pr.number, t.actionable, chk), { model: 'sonnet', effort: 'high', agentType: 'sonnet-implementer', label: 'fix ' + fixes + ' again', schema: PR_FIX }), 'fix again')
+  if (chk.problems.length) f2 = need(await agent(prFixPrompt(pr.number, t.actionable, chk), { model: 'sonnet', effort: 'high', agentType: 'cdr:sonnet-implementer', label: 'fix ' + fixes + ' again', schema: PR_FIX }), 'fix again')
   const commits = f1.commits.concat(f2 ? f2.commits : [])
   const notFixed = f1.notFixed.concat(f2 ? f2.notFixed : [])
   history.push({ round: fixes, fixed: commits.map((c) => c.sha.slice(0, 9) + ' ' + c.finding), declined: t.declined, notFixed, reruns: t.reruns })
