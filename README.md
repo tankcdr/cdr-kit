@@ -5,6 +5,7 @@ tankcdr's Claude Code plugin marketplace. One plugin, `cdr`:
 | Component | Use |
 |---|---|
 | `/cdr:ship-epic <N>` (workflow) | Ship an epic, or a single issue: an Opus coordinator plans parallel tracks, a team per track builds and QAs each issue, then one PR into the base branch and up to 5 AI-review fix rounds. Accepts `237`, `#237`, `epic 237`, `issue 237`. An issue with sub-issues ships as an epic on `epic/N`; one without ships on `issue/N`. |
+| `/cdr:ship-init` (skill) | Scans the repo and drafts its `.claude/ship-profile.json`, asks what a scan can't settle, writes it. |
 | `cdr:pr-review-loop` (skill) | Two rounds of wait for the AI review and checks, triage, fix, push; then "Needs human review". |
 | `pr-review-loop` hook | After `gh pr create` opens a PR in the profile's repo, tells the session to run `cdr:pr-review-loop`. |
 | `wait-review` (bin) | Waits for the review and checks runs on a PR's head, then prints them and every comment since a time. |
