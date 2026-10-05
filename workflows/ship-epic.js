@@ -51,7 +51,12 @@ const loaded = await agent(`Load the ship profile for this repository. Run each 
 
 ok is true when every step worked. Change nothing.`, { model: 'haiku', agentType: 'general-purpose', label: 'load profile', schema: LOADED })
 if (!loaded || !loaded.ok) throw new Error('ship-epic could not load the repo profile: ' + (loaded ? loaded.problem : 'the loader returned nothing'))
-const P = JSON.parse(loaded.profileJson)
+let P
+try {
+  P = JSON.parse(loaded.profileJson)
+} catch (e) {
+  throw new Error(loaded.root + '/.claude/ship-profile.json did not parse as the loader returned it (' + e.message + '); check the file with jq . and re-run')
+}
 const missing = ['repo', 'base', 'setup', 'gates', 'review', 'docs', 'context', 'rules', 'blockingRules'].filter((k) => P[k] == null)
   .concat(['typecheck', 'test', 'targeted', 'build', 'smoke', 'smokeWhen'].filter((k) => !P.gates || P.gates[k] == null).map((k) => 'gates.' + k))
   .concat(['workflow', 'checks', 'runners', 'flakes'].filter((k) => !P.review || P.review[k] == null).map((k) => 'review.' + k))
