@@ -54,9 +54,19 @@ Then run `/reload-plugins` in any open session.
    stages of up to 3 parallel tracks. A Fable advisor reviews the plan before any code is written.
 2. **Setup.** An integration worktree on `epic/N` and one worktree per parallel track, under
    `.claude/worktrees/`, each prepared with the profile's `setup` steps.
-3. **Build.** Per issue: an Opus lead plans, `cdr:sonnet-implementer` builds and commits, `cdr:haiku-documentor`
-   updates the docs, and `cdr:opus-adversary` tries to break it, in rounds until the lead accepts. A coordinator
-   review checks every Done-when line before the issue merges into `epic/N`.
+3. **Build.** Per issue, an Opus lead plans and then picks and judges every step, up to 10:
+   - **Tests first.** `cdr:sonnet-implementer` writes and commits the tests for each Done-when line a test can
+     prove, and the lead checks they fail for the right reason. Lines only a smoke run or an owner step can prove
+     are marked so in the plan, with why.
+   - **Build.** `cdr:sonnet-implementer` makes those tests pass without changing them (it may add cases), and
+     `cdr:opus-adversary` tries to break it once its verification is green.
+   - **Docs.** `cdr:haiku-documentor` writes the docs from the lead's brief, which names what each doc must tell a
+     reader and where any example comes from. The lead checks the docs against the code.
+   - **Review.** A coordinator review checks every Done-when line, the tests and the docs before the issue merges
+     into `epic/N`.
+
+   The script keeps a journal of each step and the lead's notes, so every lead call sees the plan and what came
+   before. Docs only follow code QA has passed, and review only follows checked docs.
 4. **Epic check.** Merges the base branch in, runs every gate, checks the epic's own Done-when lines, and a Fable
    advisor reviews the whole diff. A team fixes any gaps.
 5. **PR.** Pushes `epic/N` and opens one PR into the base branch, closing every delivered issue.
@@ -88,6 +98,7 @@ Committed in the repository. In commands, `<wt>` is the worktree the command run
 | `review.flakes` | Known flaky check failures, which get a rerun instead of a code change. |
 | `planNotes` | Optional: a note for the planner (e.g. who else opens PRs). |
 | `prBodyModel` | Optional: a PR number whose body the epic PR follows. |
+| `contract` | Optional `{ "when", "files", "refresh", "rules" }`: generated contract artifacts (an OpenAPI document, captured examples). When a change matches `when`, the implementer runs `refresh` and commits `files`; the documenter never edits them; QA and review check both. `rules` is optional extra guidance, e.g. where examples come from. |
 
 Example, for a pnpm monorepo:
 
@@ -113,6 +124,12 @@ Example, for a pnpm monorepo:
     "checks": "ci",
     "runners": "GitHub-hosted runners",
     "flakes": ["the e2e suite's 'browser closed unexpectedly'"]
+  },
+  "contract": {
+    "when": "the change adds or changes an API route, its request or its response",
+    "files": ["docs/openapi.json"],
+    "refresh": "pnpm -C <wt> openapi:generate",
+    "rules": "Response examples come from recorded responses, never typed by hand."
   }
 }
 ```
@@ -136,7 +153,7 @@ claude plugin update cdr@cdr-kit
 ```
 
 Then `/reload-plugins`. To stay on a release instead of following the latest, add the marketplace pinned to its
-tag, for example `claude plugin marketplace add tankcdr/cdr-kit#v0.2.0`. See [CHANGELOG.md](CHANGELOG.md).
+tag, for example `claude plugin marketplace add tankcdr/cdr-kit#v0.3.0`. See [CHANGELOG.md](CHANGELOG.md).
 
 Releases bump `version` in `.claude-plugin/plugin.json` and get a matching `vX.Y.Z` tag. `claude plugin update`
 compares that version, so a commit without a bump reaches nobody.

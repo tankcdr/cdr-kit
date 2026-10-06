@@ -27,7 +27,11 @@ Fill every field you can from the repo, and note where each value came from:
 - `setup`: what a fresh worktree lacks: the dependency install (frozen lockfile), submodules, and gitignored tools
   or env files that tests need (copy from `<root>`). End with a cheap preflight if the repo has one.
 - `context`: `CONTEXT.md`, `docs/adr/`, an `AGENTS.md` or `CLAUDE.md`, whichever exist.
-- `docs`: the docs files a change usually touches (READMEs, `AGENTS.md`, `.env.example`, `docs/`).
+- `docs`: the docs files a change usually touches (READMEs, `AGENTS.md`, `.env.example`, `docs/`). Leave out
+  generated files; they go in `contract`.
+- `contract` (optional): generated contract artifacts, such as an OpenAPI document or captured examples, and the
+  script that regenerates them (an `openapi`, `snapshot` or `generate` script in `package.json`). `files` are the
+  generated paths, `refresh` the command, `when` the changes that need it, `rules` where examples come from.
 - `rules`: toolchain quirks a fresh agent would trip on (a monorepo `-C` convention, long commands that need the
   600000 ms Bash timeout, a submodule setting).
 - `blockingRules`: the feedback memories in `~/.claude/projects/<root with non-alphanumerics as ->/memory/` that
@@ -40,6 +44,7 @@ Show the draft as JSON, then ask the user, with AskUserQuestion, only what the s
 - Which candidate `blockingRules` to keep, and any to add.
 - Known flaky check failures (`review.flakes`): exact error text, so a triager can match them.
 - `smokeWhen`, if there is a smoke suite: which changes need it.
+- `contract.rules`, if there is a contract: how examples are produced (recorded, captured, written by hand).
 - Which workflow is which, if more than one runs on PRs.
 
 ## Write

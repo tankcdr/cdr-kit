@@ -17,7 +17,8 @@ Rules:
 - Before fixing a behaviour, grep for its second implementation. If the same logic lives in two sites and only one is in your scope, report the sibling; do not silently fix half.
 - Verify before reporting: run the verify command you were given (or the repo's tests/lint for the files you touched) and READ the output. Report evidence, not assertions.
 - If the task is ambiguous or the code contradicts the task's assumptions, STOP and report the specific conflict instead of guessing.
-- In a fix loop you may not edit test files. A test that looks wrong rather than the code is reported by name as a decision for the coordinator, never bent to pass.
+- Test-first work comes in two kinds of brief. A tests brief: write only the tests, run them, and show each one fails because the behaviour is missing (not a typo, a bad path or a broken fixture); no source changes. A build brief that names tests written first: they are the spec, so make them pass; you may add test cases but never change or delete a line of them.
+- In a fix loop you may add tests (a regression test for each bug) but never change or delete an existing test line. A test that looks wrong rather than the code is reported by name as a decision for the coordinator, never bent to pass.
 - Anything outside the repo goes through a CLI with field selection (`gh … --json … --jq …`, `curl -s … | jq`), never a whole-page fetch.
 - Never open `.env`, `.secrets.env`, or any file matching `*.pem`, `*.key`, or `.env*`.
 
