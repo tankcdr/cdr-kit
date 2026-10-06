@@ -130,7 +130,7 @@ const PLAN = obj({
 })
 const PLAN_ADVICE = obj({ approve: BOOL, changes: STRS, risks: STRS })
 const SETUP = obj({ ok: BOOL, problem: STR, stamp: STR, slots: arr(obj({ path: STR, branch: STR })), epicHead: STR, ahead: INT })
-const ACCEPT = obj({ line: STR, check: STR, kind: { type: 'string', enum: ['unit', 'smoke', 'none'] }, why: STR })
+const ACCEPT = obj({ line: STR, check: STR, kind: { type: 'string', enum: ['test', 'gate', 'none'] }, why: STR })
 const DOC_BRIEF = obj({ file: STR, section: STR, reader: STR, source: STR })
 const TEAM_PLAN = obj({ base: STR, summary: STR, steps: STRS, files: STRS, acceptance: arr(ACCEPT), verify: STRS, docs: arr(DOC_BRIEF), blocked: STR })
 const TESTS = obj({ sha: STR, files: STRS, ran: arr(RAN), failsFor: arr(obj({ test: STR, reason: STR })), blockers: STRS })
@@ -244,7 +244,7 @@ Read ${P.context} this touches, and the code it names.
 Plan:
 - summary: what will change, in two sentences.
 - steps for the implementer, and files to touch. Name the existing function or module each piece extends: a second implementation of existing behaviour is the worst finding in this repo.${contract ? ' ' + contract + ' Regenerating them is an implementer step, not docs.' : ''}
-- acceptance: one entry per Done when line. line: the line verbatim. check: the test or command that proves it. kind: unit when a test written before the code can prove it (the default; the tests step writes these), smoke when only an end-to-end run or a gate can (a whole route through the smoke, a migration, a generated file), none when no check in this repo can (an owner step after deploy, a decision). why: one line for smoke and none, empty for unit.
+- acceptance: one entry per Done when line, then one per further test your steps add. line: the Done when line verbatim, or what the further test proves. check: the test or command that proves it. kind: test when a test of any suite (unit, integration, end-to-end) can be written before the code and fail without it: the default, and the tests step writes every one of these first. gate only when no test can and just a gate run proves it (a generated file regenerated, a lint). none when no check in this repo can (an owner step after deploy, a decision). why: one line for gate and none, empty for test.
 - verify: exact commands. ${gate('typecheck', task.wt)}; the targeted test files (${gate('targeted', task.wt)}); ${gate('test', task.wt)}; and ${gate('smoke', task.wt)} when ${P.gates.smokeWhen}.${extraGates(task.wt)}
 - docs: the brief for the documenter, one entry per doc this changes (${P.docs}). file; section (the heading it goes under, or "new: <heading>"); reader (what a reader of that doc must learn from this change, concretely enough to check the doc against); source (the test, fixture or capture any example or value in it is copied from; empty when the entry has none). An empty list when no doc changes.
 - blocked: empty, unless the task can't be built as written (a missing decision, a contradiction with an ADR or the code); then exactly what a human must decide.
@@ -256,10 +256,10 @@ const acceptList = (plan) => list(plan.acceptance.map((a) => a.line + ' (' + a.k
 const frozenFiles = (tests) => tests.files.join(', ')
 
 function testsPrompt(task, plan, items, tests) {
-  const unit = plan.acceptance.filter((a) => a.kind === 'unit')
+  const first = plan.acceptance.filter((a) => a.kind === 'test')
   const work = tests.sha
     ? 'Your lead sent these items back on the tests committed so far (' + frozenFiles(tests) + '). Fix these only, as new commits:\n' + fixList(items)
-    : 'Write the tests for these acceptance lines, and only the tests:\n' + list(unit.map((a) => a.line + ' Proved by: ' + a.check))
+    : 'Write the tests for these acceptance lines, and only the tests:\n' + list(first.map((a) => a.line + ' Proved by: ' + a.check))
   return `Test-first step for ${task.key} (${task.title}), epic #${EPIC}, in worktree ${task.wt}, and only there.
 ${work}
 
@@ -361,7 +361,7 @@ The team's summary: ${summary}
 Their verify commands: ${plan.verify.join('; ')}
 
 - Every Done when line: met, with evidence you produced (a test you read and ran, file:line), or not.
-- Test-first: ${tests.sha ? 'the tests at ' + tests.sha + ' (' + frozenFiles(tests) + ') encode the acceptance lines, and git diff ' + tests.sha + ' HEAD -- ' + tests.files.join(' ') + ' only adds lines.' : 'the plan wrote no tests first; each acceptance line it marked smoke or none says why, and the reason holds.'}
+- Test-first: ${tests.sha ? 'the tests at ' + tests.sha + ' (' + frozenFiles(tests) + ') encode the acceptance lines, and git diff ' + tests.sha + ' HEAD -- ' + tests.files.join(' ') + ' only adds lines.' : 'the plan wrote no tests first; each acceptance line it marked gate or none says why, and the reason holds.'}
 - Run ${gate('typecheck', task.wt)} and ${gate('test', task.wt)}, and ${gate('smoke', task.wt)} if their verify lists it. Read the output.
 - Scope: nothing the task didn't ask for, nothing it asked for missing, no second implementation of existing behaviour (grep for one).
 - The docs follow the change, and the code backs every claim in them. An example value not copied from a test, fixture or capture is a gap.${contract ? '\n- ' + contract : ''}
@@ -586,7 +586,7 @@ async function teamLoop(task) {
   if (plan.blocked) return { status: 'stuck', reason: 'lead: ' + plan.blocked, rounds: 0 }
   const journal = []
   const tests = { sha: '', files: [] } // the tests written first: the code must pass them with lines only added
-  let next = plan.acceptance.some((a) => a.kind === 'unit') ? 'tests' : 'implement'
+  let next = plan.acceptance.some((a) => a.kind === 'test') ? 'tests' : 'implement'
   let items = []
   let built = false // the implementer has run at least once
   let codeDone = false // QA ran on the code as it stands and the lead accepted it

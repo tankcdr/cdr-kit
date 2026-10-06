@@ -56,8 +56,8 @@ Then run `/reload-plugins` in any open session.
    `.claude/worktrees/`, each prepared with the profile's `setup` steps.
 3. **Build.** Per issue, an Opus lead plans and then picks and judges every step, up to 10:
    - **Tests first.** `cdr:sonnet-implementer` writes and commits the tests for each Done-when line a test can
-     prove, and the lead checks they fail for the right reason. Lines only a smoke run or an owner step can prove
-     are marked so in the plan, with why.
+     prove, and the lead checks they fail for the right reason. Any suite counts (unit, integration, end to end); only lines
+     that a gate run or an owner step alone can prove skip it, with why.
    - **Build.** `cdr:sonnet-implementer` makes those tests pass without changing them (it may add cases), and
      `cdr:opus-adversary` tries to break it once its verification is green.
    - **Docs.** `cdr:haiku-documentor` writes the docs from the lead's brief, which names what each doc must tell a

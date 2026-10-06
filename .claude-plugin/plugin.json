@@ -1,6 +1,6 @@
 {
   "name": "cdr",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Ship a GitHub epic or issue end to end with agent teams, then loop the PR through your AI code review: generic, driven by a per-repo .claude/ship-profile.json.",
   "author": { "name": "tankcdr", "url": "https://github.com/tankcdr" },
   "homepage": "https://github.com/tankcdr/cdr-kit",

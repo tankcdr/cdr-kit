@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 (2026-10-06)
+
+- Tests first no longer depends on the test suite. The plan tags a line `test` when any test (unit, integration or
+  end to end) can be written before the code, `gate` when only a gate run proves it, and `none` otherwise. It also
+  lists the further tests its steps add, so the tests step writes those first too. In 0.3.0 the trigger was `unit`,
+  so an issue whose Done when asked for an integration test skipped the tests step.
+
 ## 0.3.0 (2026-10-06)
 
 - **The issue lead picks every step.** Before this, the script fixed each round as implement, document, QA, then a
