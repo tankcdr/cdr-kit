@@ -54,7 +54,8 @@ Then run `/reload-plugins` in any open session.
    stages of up to 3 parallel tracks. A Fable advisor reviews the plan before any code is written.
 2. **Setup.** An integration worktree on `epic/N` and one worktree per parallel track, under
    `.claude/worktrees/`, each prepared with the profile's `setup` steps.
-3. **Build.** Per issue, an Opus lead plans and then picks and judges every step, up to 10:
+3. **Build.** Per issue, an Opus lead plans and then picks and judges every step, up to 8. QA is the one review
+   layer, and runs the smoke gate once; the lead's done merges the issue into `epic/N`:
    - **Tests first.** `cdr:sonnet-implementer` writes and commits the tests for each Done-when line a test can
      prove, and the lead checks they fail for the right reason. Any suite counts (unit, integration, end to end); only lines
      that a gate run or an owner step alone can prove skip it, with why.
@@ -62,12 +63,10 @@ Then run `/reload-plugins` in any open session.
      `cdr:opus-adversary` tries to break it once its verification is green.
    - **Docs.** `cdr:haiku-documentor` writes the docs from the lead's brief, which names what each doc must tell a
      reader and where any example comes from. The lead checks the docs against the code.
-   - **Review.** A coordinator review checks every Done-when line, the tests and the docs before the issue merges
-     into `epic/N`.
 
    The script keeps a journal of each step and the lead's notes, so every lead call sees the plan and what came
-   before. Docs only follow code QA has passed, and review only follows checked docs.
-4. **Epic check.** Merges the base branch in, runs every gate, checks the epic's own Done-when lines, and a Fable
+   before. Docs only follow code QA has passed, and done only follows checked docs.
+4. **Epic check** (an epic only; a single issue goes straight to its PR). Merges the base branch in, runs every gate, checks the epic's own Done-when lines, and a Fable
    advisor reviews the whole diff. A team fixes any gaps.
 5. **PR.** Pushes `epic/N` and opens one PR into the base branch, closing every delivered issue.
 6. **PR review.** Waits for the AI review and checks, triages each finding against the code, fixes the real ones

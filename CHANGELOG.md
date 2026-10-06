@@ -2,6 +2,12 @@
 
 ## 0.3.1 (2026-10-06)
 
+- **One review layer per issue.** QA is the review; the lead's done merges the issue. The per-issue coordinator
+  review is gone: on #277 it re-read the same diff and re-ran the gates after QA already had.
+- **The smoke gate runs once per issue**, in QA. The implementer runs typecheck and tests, not the smoke.
+- **A single issue skips the Fable plan advisor and the epic check.** There's no order or split to review, and QA
+  already ran the gates on the branch the PR opens from. An epic keeps both.
+- `TEAM_ROUNDS` is 8, down from 10, now that review is no longer a step.
 - Tests first no longer depends on the test suite. The plan tags a line `test` when any test (unit, integration or
   end to end) can be written before the code, `gate` when only a gate run proves it, and `none` otherwise. It also
   lists the further tests its steps add, so the tests step writes those first too. In 0.3.0 the trigger was `unit`,

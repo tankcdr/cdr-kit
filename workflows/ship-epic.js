@@ -1,12 +1,12 @@
 export const meta = {
   name: 'ship-epic',
-  description: 'Ship a GitHub epic (or a single issue): an Opus coordinator (Fable advising) orders its issues into parallel tracks, a team per track builds and QAs each issue, the coordinator reviews and merges it, then one PR into the base branch and up to 5 AI-review fix rounds. Driven by the repo\'s .claude/ship-profile.json.',
+  description: 'Ship a GitHub epic (or a single issue): an Opus coordinator orders its issues into parallel tracks (Fable advising on an epic), a team per track builds each issue test-first with one QA layer and merges it when its lead is done, then one PR into the base branch and up to 5 AI-review fix rounds. Driven by the repo\'s .claude/ship-profile.json.',
   whenToUse: 'An epic whose open child issues are ready to build, or one ready issue, in a repo with a .claude/ship-profile.json. Pass the issue number: /cdr:ship-epic 237 (also #237, epic 237, issue 237).',
   phases: [
-    { title: 'Plan', detail: 'load the repo profile; Opus coordinator orders the open child issues into stages of parallel tracks; Fable advises' },
+    { title: 'Plan', detail: 'load the repo profile; Opus coordinator orders the open child issues into stages of parallel tracks; Fable advises on an epic' },
     { title: 'Setup', detail: 'epic branch from the base branch, one worktree per parallel track' },
-    { title: 'Build', detail: 'per issue: an Opus lead plans and picks each step; tests first (Sonnet writes them, the lead checks they fail for the right reason), then Sonnet implements against them while Opus QA tries to break it, then Haiku documents from the lead\'s brief and the lead checks it; coordinator review; merge into the epic branch' },
-    { title: 'Epic check', detail: 'merge the base branch, full gates, the epic Done when; Fable advises; a team fixes any gaps' },
+    { title: 'Build', detail: 'per issue: an Opus lead plans and picks each step; tests first (Sonnet writes them, the lead checks they fail for the right reason), then Sonnet implements against them and Opus QA, the one review layer, runs the gates once and tries to break it; Haiku documents from the lead\'s brief and the lead checks it; the lead\'s done merges it into the epic branch' },
+    { title: 'Epic check', detail: 'an epic only: merge the base branch, full gates, the epic Done when; Fable advises; a team fixes any gaps' },
     { title: 'PR', detail: 'one PR into the base branch' },
     { title: 'PR review', detail: 'wait for the AI review and checks on the self-hosted runners (a check about every 10 minutes), triage, fix, push; up to 5 fix rounds' },
   ],
@@ -15,7 +15,7 @@ export const meta = {
 // Run: /cdr:ship-epic 237, or Workflow({name: 'cdr:ship-epic', args: {epic: 237}})
 //
 // The coordinator is this script plus Opus decision agents: nothing carries between agents except what the
-// script passes along. Fable advises at two fixed points (the plan, and the epic before its PR), and the Opus
+// script passes along. On an epic, Fable advises at two fixed points (the plan, and the epic before its PR), and the Opus
 // agents may spawn the plugin's Fable cdr:advisor subagent for one hard call. Every agent() call names its model
 // inline, so no agent inherits the session's model; keep the two Fable calls as top-level awaits outside any loop.
 //
@@ -26,7 +26,7 @@ export const meta = {
 
 // Settings
 const MAX_TEAMS = 3 // parallel tracks in one stage
-const TEAM_ROUNDS = 10 // steps per issue (tests, implement + QA, docs, coordinator review), each judged by the lead, before it counts as stuck
+const TEAM_ROUNDS = 8 // steps per issue (tests, implement + QA, docs), each judged by the lead, before it counts as stuck
 const FIX_ROUNDS = 5 // PR review fix attempts
 const CHECKS_PER_WAIT = 14 // 8-minute checks per review wait: about 110 minutes, wait-review's own limit
 const NO_RUN_CHECKS = 2 // checks in a row without a review run on the head: the review isn't running
@@ -137,8 +137,7 @@ const TESTS = obj({ sha: STR, files: STRS, ran: arr(RAN), failsFor: arr(obj({ te
 const IMPL = obj({ changed: arr(obj({ file: STR, change: STR })), ran: arr(RAN), deviations: STRS, blockers: STRS })
 const DOCS = obj({ sha: STR, edited: arr(obj({ file: STR, change: STR })), notDocumented: STRS })
 const QA = obj({ items: arr(obj({ severity: { type: 'string', enum: ['blocker', 'major', 'minor'] }, where: STR, problem: STR, fix: STR })), ran: arr(RAN), tried: STR })
-const LEAD = obj({ next: { type: 'string', enum: ['tests', 'implement', 'docs', 'review'] }, items: arr(FIX), rejected: arr(obj({ problem: STR, reason: STR })), blocked: STR, summary: STR, note: STR })
-const REVIEW = obj({ done: BOOL, criteria: arr(obj({ criterion: STR, met: BOOL, evidence: STR })), gaps: arr(FIX), blocked: STR, ran: arr(RAN) })
+const LEAD = obj({ next: { type: 'string', enum: ['tests', 'implement', 'docs', 'done'] }, items: arr(FIX), rejected: arr(obj({ problem: STR, reason: STR })), blocked: STR, summary: STR, note: STR })
 const MERGE = obj({ ok: BOOL, problem: STR, commit: STR, epicHead: STR, fastForward: BOOL, conflicts: STRS, ran: arr(RAN) })
 const EPIC_CHECK = obj({
   devMerge: STR,
@@ -292,7 +291,7 @@ ${acceptList(plan)}
 ${taskSource(task)}
 
 Commit your work before you report, so QA and review see it: stage only this task's files (code, tests${P.contract ? ', the regenerated contract artifacts' : ''}; never build output or .tools), in the style of ${GIT} -C ${task.wt} log --oneline -15, no co-author trailer. ${first ? 'One commit for the build, "<type>(<scope>): <what> (' + (task.issue ? '#' + task.issue : 'epic #' + EPIC) + ')"' : 'One commit per item fixed'}; work an earlier attempt left uncommitted goes in too. Nothing of the task may stay uncommitted.
-Run every verify command before you report, and read the output.
+Run every verify command before you report, and read the output, except ${gate('smoke', task.wt)}: QA runs that once.
 
 ${RULES}`
 }
@@ -319,7 +318,7 @@ ${again}
 ${taskSource(task)}
 Acceptance:
 ${acceptList(plan)}
-Verify commands (run them yourself and read the output):
+Verify commands (run them yourself and read the output; you are the only one who runs ${gate('smoke', task.wt)}, so run it when the list has it):
 ${list(plan.verify)}
 ${tests.sha ? 'The tests written first are the spec: ' + GIT + ' -C ' + task.wt + ' diff ' + tests.sha + ' HEAD -- ' + tests.files.join(' ') + ' may only add lines. A changed or deleted assertion is a major item.\n' : ''}${contract ? contract + ' A change to a route, request or response without them regenerated is a major item; so is a hand edit to one.\n' : ''}
 Severity: blocker (wrong behaviour, money, security, data loss), major (a Done when not met, a test that proves nothing, a second implementation), minor (worth fixing now, wouldn't block a merge). No style nits.
@@ -328,12 +327,11 @@ ${RULES}`
 }
 
 function leadPrompt(task, plan, round, journal, tests, step) {
-  const docsNext = plan.docs.length ? '"docs"' : '"review" (the plan names no docs)'
+  const docsNext = plan.docs.length ? '"docs"' : '"done" (the plan names no docs)'
   const what = {
     tests: () => 'The tests step just reported:\n' + show(step.report) + '\nCheck the tests yourself: ' + GIT + ' -C ' + task.wt + ' diff ' + plan.base + ' HEAD -- ' + (tests.files.join(' ') || '<the files above>') + ', and run them. Each must encode its acceptance line, would fail against a wrong implementation, mocks nothing it tests, and fails now for the right reason: a failed assertion or the missing export the plan names, not a typo, a wrong path or a broken fixture. All sound: next "implement". Otherwise next "tests", with the items.',
     implement: () => 'Implementer:\n' + show(step.impl) + '\nQA: ' + (step.qa ? show(step.qa) : "(skipped: the implementer's verification was not green, or it ran none)") + '\nEach QA item: accept it (real and in scope; check the code when that isn\'t obvious) or reject it with the reason. Failing verification is an accepted item; so is an implementer blocker you can settle (settle it in the item). A deviation that calls a test wrong: read the test. Wrong: next "tests", with the change as the item. Right: it stays, and an item says so. Code accepted (QA ran, verification green, nothing accepted): next ' + docsNext + '. Otherwise next "implement", with the items.',
-    docs: () => 'The documenter reported:\n' + show(step.docs) + '\nRead the docs diff yourself (' + (step.docs.sha ? GIT + ' -C ' + task.wt + ' show ' + step.docs.sha : 'nothing was committed') + ') against the code and your brief. An item for each claim the code doesn\'t back, each example or value not copied from a test, fixture or capture, each generated file edited by hand, each brief entry left unwritten without a sound reason. Sound: next "review". Otherwise next "docs", with the items, or "implement" when the docs exposed a gap in the code.',
-    review: () => 'The epic coordinator reviewed the task and sent back these gaps. They are binding:\n' + fixList(step.gaps) + '\nRoute them: next is the step that owns them ("tests", "implement" or "docs"), with its gaps as the items. Gaps for another step go in note, for your next round.',
+    docs: () => 'The documenter reported:\n' + show(step.docs) + '\nRead the docs diff yourself (' + (step.docs.sha ? GIT + ' -C ' + task.wt + ' show ' + step.docs.sha : 'nothing was committed') + ') against the code and your brief. An item for each claim the code doesn\'t back, each example or value not copied from a test, fixture or capture, each generated file edited by hand, each brief entry left unwritten without a sound reason. Sound: next "done". Otherwise next "docs", with the items, or "implement" when the docs exposed a gap in the code.',
   }[step.kind]()
   return `You lead the team on ${task.key} (${task.title}) in worktree ${task.wt}: a Sonnet implementer who also writes the tests, a Haiku documenter and an Opus adversarial QA. You planned it, and you pick each next step. Round ${round} of at most ${TEAM_ROUNDS}.
 
@@ -346,28 +344,7 @@ ${list(journal)}
 This round: ${what}
 
 Report next, items (where, problem, fix; one owner each), rejected (QA items you reject, with the reason), blocked (empty, unless a human must decide something before this can be built; then what), summary (what the change does now, in three sentences, for the PR) and note (what your next round needs that the items don't say).
-"review" sends the task to the epic coordinator: only when the code is accepted and the docs are written and checked. An item back for the second time without progress, or a call you can't make: spawn subagent_type "cdr:advisor" (Fable) for that one decision.
-
-${RULES}`
-}
-
-function reviewPrompt(task, plan, summary, tests) {
-  const contract = contractLine(task.wt)
-  return `You coordinate ${REPO} epic #${EPIC}. The team says ${task.key} (${task.title}) is done in worktree ${task.wt}. Check that it is really done before it merges. You didn't build it: trust the code and the commands you run, not the reports.
-
-The changes are committed on top of ${plan.base}: git log ${plan.base}..HEAD and git diff ${plan.base}. Task work left uncommitted (git status --porcelain) is a gap.
-${taskSource(task)}
-The team's summary: ${summary}
-Their verify commands: ${plan.verify.join('; ')}
-
-- Every Done when line: met, with evidence you produced (a test you read and ran, file:line), or not.
-- Test-first: ${tests.sha ? 'the tests at ' + tests.sha + ' (' + frozenFiles(tests) + ') encode the acceptance lines, and git diff ' + tests.sha + ' HEAD -- ' + tests.files.join(' ') + ' only adds lines.' : 'the plan wrote no tests first; each acceptance line it marked gate or none says why, and the reason holds.'}
-- Run ${gate('typecheck', task.wt)} and ${gate('test', task.wt)}, and ${gate('smoke', task.wt)} if their verify lists it. Read the output.
-- Scope: nothing the task didn't ask for, nothing it asked for missing, no second implementation of existing behaviour (grep for one).
-- The docs follow the change, and the code backs every claim in them. An example value not copied from a test, fixture or capture is a gap.${contract ? '\n- ' + contract : ''}
-- done: every Done when line met (or left to an owner step after deploy, below) and the gates green. Otherwise the gaps (where, problem, fix) go back to the team.
-- blocked: empty, unless a human must decide something before this can merge; then say what. A Done when line that only an owner step after deploy can prove (DNS, a tunnel ingress rule, a live URL, a listing) is not blocked and not a gap: mark it met false with evidence starting "after deploy:" and the exact owner step, and it doesn't stop done.
-A gap you're unsure of: spawn subagent_type "cdr:advisor" (Fable) for that one decision.
+"done" merges the task: only when QA passed the code, every Done when line is met (or is an owner step after deploy, which the PR lists), and the docs are written and checked. There is no review after you: you are the last check before the merge. An item back for the second time without progress, or a call you can't make: spawn subagent_type "cdr:advisor" (Fable) for that one decision.
 
 ${RULES}`
 }
@@ -431,7 +408,7 @@ Body${P.prBodyModel ? ', modelled on PR #' + P.prBodyModel + ' (gh pr view ' + P
 - What's in it: one bullet per issue, from the summaries below.
 - Deliberate behaviour worth knowing, and known follow-ups, if there are any.
 - Verification: the gate results below.
-- One line: each issue was built test-first by a team (a lead who planned and judged every step, an implementer, a documenter and an adversarial QA) and reviewed by the epic coordinator before it merged into the epic branch.
+- One line: each issue was built test-first by a team (a lead who planned and judged every step, an implementer, a documenter and an adversarial QA) before it merged into the ${KIND} branch.
 No Claude attribution in the title or the body.
 
 The pr-review-loop hook will tell you to hand the review loop to your caller: this workflow runs it. Just report.
@@ -578,8 +555,8 @@ function checkPlan(p) {
   return problems
 }
 
-// One team on one task. The lead plans, then picks each step (tests, implement + QA, docs, coordinator review)
-// and judges it. A workflow agent starts fresh every call, so the lead's memory is the journal this loop keeps
+// One team on one task. The lead plans, then picks each step (tests, implement + QA, docs) and judges it; its
+// "done" is the merge gate, with QA as the one review layer under it. A workflow agent starts fresh every call, so the lead's memory is the journal this loop keeps
 // (each round's step, its outcome and the lead's note) plus the plan, both handed to every lead call.
 async function teamLoop(task) {
   const plan = need(await agent(teamPlanPrompt(task), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: task.key + ' plan', phase: task.phase, schema: TEAM_PLAN }), task.key + ' plan')
@@ -592,6 +569,7 @@ async function teamLoop(task) {
   let codeDone = false // QA ran on the code as it stands and the lead accepted it
   let docsDone = !plan.docs.length // the docs match the accepted code
   let summary = plan.summary
+  let checked = [] // the commands QA ran on the accepted code, for the PR
   for (let round = 1; round <= TEAM_ROUNDS; round++) {
     const step = { kind: next }
     let outcome
@@ -610,23 +588,18 @@ async function teamLoop(task) {
     } else if (next === 'docs') {
       step.docs = need(await agent(docsPrompt(task, plan, summary, items), { model: 'haiku', agentType: 'cdr:haiku-documentor', label: task.key + ' document ' + round, phase: task.phase, schema: DOCS }), task.key + ' documenter')
       outcome = step.docs.edited.length + ' doc(s) edited' + (step.docs.notDocumented.length ? ', ' + step.docs.notDocumented.length + ' left out' : '')
-    } else {
-      const review = need(await agent(reviewPrompt(task, plan, summary, tests), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: task.key + ' coordinator review', phase: task.phase, schema: REVIEW }), task.key + ' coordinator review')
-      if (review.blocked) return { status: 'stuck', reason: 'coordinator: ' + review.blocked, rounds: round }
-      if (review.done) return { status: 'done', rounds: round, summary }
-      step.gaps = review.gaps
-      outcome = 'the coordinator sent ' + review.gaps.length + ' gap(s) back'
-      log(task.key + ': ' + outcome)
     }
     const lead = need(await agent(leadPrompt(task, plan, round, journal, tests, step), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: task.key + ' lead ' + round, phase: task.phase, schema: LEAD }), task.key + ' lead')
     if (lead.blocked) return { status: 'stuck', reason: 'lead: ' + lead.blocked, rounds: round }
     if (lead.summary) summary = lead.summary
     next = lead.next
-    if (step.kind === 'tests' || step.kind === 'implement') codeDone = step.kind === 'implement' && !!step.qa && (next === 'docs' || next === 'review')
-    if (step.kind === 'docs' && next === 'review') docsDone = true
-    // Docs and review only follow code QA ran on and the lead accepted; review only follows checked docs.
-    if ((next === 'docs' || next === 'review') && !codeDone) next = 'implement'
-    if (next === 'review' && !docsDone) next = 'docs'
+    if (step.kind === 'tests' || step.kind === 'implement') codeDone = step.kind === 'implement' && !!step.qa && (next === 'docs' || next === 'done')
+    if (codeDone && step.kind === 'implement') checked = step.qa.ran
+    if (step.kind === 'docs' && next === 'done') docsDone = true
+    // Docs and done only follow code QA ran on and the lead accepted; done only follows checked docs.
+    if ((next === 'docs' || next === 'done') && !codeDone) next = 'implement'
+    if (next === 'done' && !docsDone) next = 'docs'
+    if (next === 'done') return { status: 'done', rounds: round, summary, ran: checked }
     items = lead.items
     journal.push('Round ' + round + ', ' + step.kind + ': ' + outcome + '. Next: ' + next + ' with ' + items.length + ' item(s)' + (lead.rejected.length ? ', ' + lead.rejected.length + ' QA item(s) rejected' : '') + '.' + (lead.note ? ' Note: ' + lead.note : ''))
     log(task.key + ': round ' + round + ' (' + step.kind + ') -> ' + next + ', ' + items.length + ' item(s)')
@@ -649,7 +622,7 @@ async function runTrack(track, slot) {
         if (!m.ok) {
           stop = 'merge: ' + m.problem
         } else {
-          done.push({ number: info.number, title: info.title, rounds: r.rounds, commit: m.commit, summary: r.summary })
+          done.push({ number: info.number, title: info.title, rounds: r.rounds, commit: m.commit, summary: r.summary, ran: r.ran })
           log(task.key + ' merged into ' + EPIC_BRANCH + ' (' + m.commit.slice(0, 9) + ', ' + r.rounds + ' team round(s))')
         }
       }
@@ -667,8 +640,9 @@ async function runTrack(track, slot) {
 
 // Plan
 let plan = need(await agent(planPrompt, { model: 'opus', effort: 'xhigh', agentType: 'general-purpose', label: 'coordinator: plan', schema: PLAN }), 'coordinator plan')
-const planAdvice = await agent(planAdvicePrompt(plan), { model: 'fable', effort: 'high', agentType: 'cdr:advisor', label: 'advisor: plan', schema: PLAN_ADVICE })
-if (!planAdvice) log('The plan advisor returned nothing; going on with the coordinator plan')
+// A single issue has no order or split to review: the advisor only reads an epic's plan.
+const planAdvice = IS_EPIC ? await agent(planAdvicePrompt(plan), { model: 'fable', effort: 'high', agentType: 'cdr:advisor', label: 'advisor: plan', schema: PLAN_ADVICE }) : null
+if (IS_EPIC && !planAdvice) log('The plan advisor returned nothing; going on with the coordinator plan')
 let planProblems = checkPlan(plan)
 if ((planAdvice && !planAdvice.approve) || planProblems.length) {
   plan = need(await agent(revisePrompt(plan, planAdvice, planProblems), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: 'coordinator: revise plan', schema: PLAN }), 'coordinator revise')
@@ -713,11 +687,14 @@ if (stuck.length) {
   }
 }
 
-// Epic check
+// Epic check: only an epic has a whole that no single team checked. A single issue's QA already ran the gates on
+// the branch the PR opens from, and the PR's own review and checks follow.
 phase('Epic check')
-const epicCheck = need(await agent(epicCheckPrompt(), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: 'coordinator: epic check', schema: EPIC_CHECK }), 'epic check')
-const epicAdvice = await agent(epicAdvicePrompt(epicCheck), { model: 'fable', effort: 'high', agentType: 'cdr:advisor', label: 'advisor: epic', schema: EPIC_ADVICE })
-if (!epicAdvice) log('The epic advisor returned nothing; going on with the coordinator check')
+const epicCheck = IS_EPIC
+  ? need(await agent(epicCheckPrompt(), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: 'coordinator: epic check', schema: EPIC_CHECK }), 'epic check')
+  : { devMerge: 'not checked: a single issue, built on origin/' + BASE + ' at the start of this run', gates: done.flatMap((d) => d.ran || []), doneWhen: [], gaps: [], diffFile: '' }
+const epicAdvice = IS_EPIC ? await agent(epicAdvicePrompt(epicCheck), { model: 'fable', effort: 'high', agentType: 'cdr:advisor', label: 'advisor: epic', schema: EPIC_ADVICE }) : null
+if (IS_EPIC && !epicAdvice) log('The epic advisor returned nothing; going on with the coordinator check')
 const gaps = epicCheck.gaps.concat(epicAdvice && !epicAdvice.ready ? epicAdvice.gaps : [])
 let gapRun = null
 if (gaps.length) {
