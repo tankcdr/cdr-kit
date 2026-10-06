@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdicts", "comment"],
+  "properties": {
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "reviewers", "severity", "verdict", "known", "file", "line", "evidence"],
+        "properties": {
+          "title": { "type": "string" },
+          "reviewers": { "type": "array", "items": { "type": "string", "enum": ["correctness", "ponytail"] } },
+          "severity": { "type": "string", "enum": ["blocking", "major", "minor"] },
+          "verdict": { "type": "string", "enum": ["confirmed", "rejected", "uncertain"] },
+          "known": { "type": "boolean" },
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "comment": { "type": "string" }
+  }
+}

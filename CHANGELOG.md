@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 (2026-10-06)
+
+- **`/cdr:pr-review <N>`** (Codex: `$cdr:pr-review <N>`), a PR review that runs in Claude Code, Codex and CI. A
+  correctness reviewer and a ponytail over-engineering reviewer run as parallel sub-agents; the same agent then
+  verifies each finding against the code and writes one comment for the agent that fixes the PR. `pr-review-post`
+  computes the verdict from the verified findings (`request-changes` for a confirmed blocking or major finding,
+  `accept-with-suggestions` for minor or uncertain ones, else `accept`) and heads the comment with it and a
+  `<!-- cdr:pr-review verdict=<v> head=<sha> -->` line, so CI jobs and agents can act on it. `--no-post` returns the
+  review instead, for a CI step that posts it without giving the model a token.
+- `bin/pr-review-context` gathers the review's inputs (description, git diff, comments, closed issues and their
+  epics) into `.review/`; `bin/pr-review-post` posts the result.
+- `review.focus` in the profile (optional): what the product is and where a defect costs most, for the correctness
+  reviewer.
+- pr-review-loop and ship-epic's triage read the verdict line, and `review.workflow` and `review.checks` may name the
+  same workflow.
+
 ## 0.3.1 (2026-10-06)
 
 - **One review layer per issue.** QA is the review; the lead's done merges the issue. The per-issue coordinator

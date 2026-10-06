@@ -431,6 +431,7 @@ Report exitCode (the number after exit=), reportFile (the path after file=), noR
 function triagePrompt(pr, reportFile, since, round, history) {
   return `Triage review round ${round} of PR #${pr} (${REPO} epic #${EPIC}, branch ${EPIC_BRANCH}, worktree ${EPIC_WT}). ${reportFile} holds the run results on the PR head, then every comment, inline comment and review posted since ${since}. Read all of it.
 
+A cdr pr-review comment starts with <!-- cdr:pr-review verdict=<v> head=<sha> -->: request-changes lists Required changes, accept-with-suggestions only Suggestions and Uncertain lines, accept nothing to change. Jobs the workflow skipped after a request-changes verdict are not failures.
 For each finding the verifier kept, and each comment that asks for a change:
 - Check it against the code in ${EPIC_WT} yourself. A verdict is not proof.
 - Real: actionable, with source (who raised it, and the finding's id or title), where (file:line), the problem and the fix.

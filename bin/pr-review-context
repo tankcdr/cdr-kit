@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Usage: pr-review-context <pr>   Run in a checkout of the PR's repository. Env: REPO (owner/name; default: the
+# checkout's GitHub repository). Writes the pr-review skill's inputs to .review/: repo, pr, head, pr.md, pr.diff,
+# comments.md and issues.md. The diff is git's (base...head), not GitHub's, which refuses large diffs; the two commits
+# are fetched when the checkout lacks them.
+set -euo pipefail
+PR=$1
+REPO=${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}
+d=.review
+rm -rf "$d"
+mkdir -p "$d"
+# Keep the inputs out of `git add -A` in a working checkout.
+exclude=$(git rev-parse --git-path info/exclude)
+grep -qx '/.review/' "$exclude" 2>/dev/null || echo '/.review/' >> "$exclude"
+
+pr=$(gh pr view "$PR" -R "$REPO" --json title,body,baseRefOid,headRefOid)
+base=$(jq -r .baseRefOid <<<"$pr")
+head=$(jq -r .headRefOid <<<"$pr")
+echo "$REPO" > "$d/repo"
+echo "$PR" > "$d/pr"
+echo "$head" > "$d/head"
+jq -r '"# \(.title)\n\n\(.body)"' <<<"$pr" > "$d/pr.md"
+git cat-file -e "$base^{commit}" 2>/dev/null && git cat-file -e "$head^{commit}" 2>/dev/null \
+  || git fetch -q origin "$base" "refs/pull/$PR/head"
+git diff "$base...$head" > "$d/pr.diff"
+
+{
+  gh api "repos/$REPO/issues/$PR/comments" --paginate | jq -c '.[] | {at: .created_at, head: "\(.user.login), \(.created_at) (\(.html_url))", body}'
+  gh api "repos/$REPO/pulls/$PR/comments" --paginate | jq -c '.[] | {at: .created_at, head: "\(.user.login) on \(.path):\(.line // .original_line), \(.created_at) (\(.html_url))", body}'
+  gh api "repos/$REPO/pulls/$PR/reviews" --paginate | jq -c '.[] | select(.body != "") | {at: .submitted_at, head: "\(.user.login), review \(.state | ascii_downcase), \(.submitted_at) (\(.html_url))", body}'
+} | jq -rs 'sort_by(.at) | map("### \(.head)\n\n\(.body)\n") | join("\n")' > "$d/comments.md"
+
+# GitHub's own closing references ("Closes #n", or the PR's sidebar link), each with its parent epic: the spec and the
+# decisions behind it, which the diff alone doesn't show.
+gh api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -F pr="$PR" -f query='
+  query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) {
+    closingIssuesReferences(first: 50) { nodes { number title state body parent { number title state body } } } } } }' \
+  | jq -r '.data.repository.pullRequest.closingIssuesReferences.nodes as $closes
+      | ($closes | map(.number)) as $closed
+      | [($closes[] | . + {role: "closes"}),
+         ([$closes[].parent | select(. != null and (.number | IN($closed[]) | not))] | unique_by(.number)[] | . + {role: "epic of an issue it closes"})]
+      | if length == 0 then "This PR closes no issue.\n"
+        else map("## #\(.number) \(.title) (\(.role); \(.state | ascii_downcase))\n\n\(.body)\n") | join("\n") end' > "$d/issues.md"
+
+wc -l "$d"/*

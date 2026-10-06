@@ -23,7 +23,10 @@ Fill every field you can from the repo, and note where each value came from:
   `test` and `smokeWhen` is `never`.
 - `review.workflow`, `review.checks`: the workflows in `.github/workflows/` that run on `pull_request` into `base`.
   The AI review is the one that posts a review comment; the checks are the one that runs the gates. Their `runs-on`
-  gives `review.runners` (`the self-hosted runners` for `self-hosted`).
+  gives `review.runners` (`the self-hosted runners` for `self-hosted`). With cdr's `pr-review` skill as the review,
+  one workflow may run both: then both fields name it.
+- `review.focus` (optional, read by cdr's `pr-review`): one or two sentences on what the product is and where a
+  defect costs most (payments, auth, data migrations), from the README.
 - `setup`: what a fresh worktree lacks: the dependency install (frozen lockfile), submodules, and gitignored tools
   or env files that tests need (copy from `<root>`). End with a cheap preflight if the repo has one.
 - `context`: `CONTEXT.md`, `docs/adr/`, an `AGENTS.md` or `CLAUDE.md`, whichever exist.
@@ -51,5 +54,5 @@ Show the draft as JSON, then ask the user, with AskUserQuestion, only what the s
 
 Write the file, run `jq . <file>` to prove it parses, and check every required field is set: `repo`, `base`,
 `context`, `docs`, `setup`, `rules`, `blockingRules`, `gates.{typecheck,test,targeted,build,smoke,smokeWhen}`,
-`review.{workflow,checks,runners,flakes}`. Then tell the user to commit it, and to enable the plugin for the repo
+`review.{workflow,checks,runners,focus,flakes}`. Then tell the user to commit it, and to enable the plugin for the repo
 (`claude plugin install cdr@cdr-kit --scope project`) if it isn't already.

@@ -14,7 +14,8 @@ Read `<main checkout>/.claude/ship-profile.json` first (the main checkout: dirna
 
 - `repo`: owner/name. `base`: the branch AI review runs on PRs into.
 - `review.workflow`: the AI review workflow (a reviewer posts findings, a verifier keeps or dismisses each, a bot
-  posts one comment). `review.checks`: the gates workflow. Both run when a PR into `base` is opened and on every
+  posts one comment; cdr's `pr-review` skill is one). `review.checks`: the gates workflow (it may be the same
+  workflow). Both run when a PR into `base` is opened and on every
   push to it, on `review.runners`, so the push that ends round 1 is what starts round 2's review.
 - `gates`: the commands that must pass before you push (`<wt>` is the checkout you work in).
 - `review.flakes`: known flaky failures, which get a rerun, not a code change.
@@ -39,7 +40,10 @@ No profile: say so in one line and stop.
      the comments it printed if any, then hand off, and tell the user the review never ran.
    - Exit 4: timed out. Hand off, saying so.
 2. **Read** its output: the run results and every comment, inline comment and review since `<since>`. The AI review
-   comment lists findings with the verifier's verdicts. A failed checks run: `gh run view <id> -R <repo> --log-failed | tail -200`.
+   comment lists findings with the verifier's verdicts. A `pr-review` comment starts with
+   `<!-- cdr:pr-review verdict=<v> head=<sha> -->`: `request-changes` means fix its Required changes,
+   `accept-with-suggestions` means triage its Suggestions and Uncertain lines, `accept` means nothing from the review
+   (checks skipped after a `request-changes` verdict are not failures). A failed checks run: `gh run view <id> -R <repo> --log-failed | tail -200`.
    If the PR merged while you waited (`gh pr view <N> --json state`), fixes can't go onto it. Open a follow-up PR
    against `base` from the same branch; the hook starts that PR's own loop. Post the hand-off on the merged PR,
    pointing to the follow-up.

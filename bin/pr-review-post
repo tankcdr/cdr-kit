@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Usage: pr-review-post <review.json>   Run where pr-review-context wrote .review/. Posts the pr-review skill's result
+# as one PR comment, with the verdict computed from its verdicts, and prints `verdict=<verdict>` (a GitHub Actions
+# step output as is) and the comment's URL.
+# The verdict: request-changes if any confirmed finding is blocking or major; else accept-with-suggestions if any is
+# confirmed or uncertain; else accept. The first line of the comment, <!-- cdr:pr-review verdict=<v> head=<sha> -->,
+# is for agents and scripts: it names the verdict and the commit it reviewed.
+set -euo pipefail
+review=$1
+d=.review
+verdict=$(jq -r '.verdicts as $v
+  | if any($v[]; .verdict == "confirmed" and (.severity == "blocking" or .severity == "major")) then "request-changes"
+    elif any($v[]; .verdict != "rejected") then "accept-with-suggestions"
+    else "accept" end' "$review")
+case $verdict in
+  request-changes) title="request changes"
+    what="Don't merge. Fix every item under Required changes, each with a regression test that fails without the fix, then push: the review runs again on the push." ;;
+  accept-with-suggestions) title="accept with suggestions"
+    what="Mergeable once the checks pass. Apply each suggestion or decline it with a reason; none of them blocks the merge." ;;
+  accept) title="accept"
+    what="Nothing to change. Mergeable once the checks pass." ;;
+esac
+totals=$(jq -r '.verdicts | "\(length) findings: \(map(select(.verdict == "confirmed")) | length) confirmed, \(map(select(.verdict == "uncertain")) | length) uncertain, \(map(select(.verdict == "rejected")) | length) rejected."' "$review")
+
+body=$(mktemp)
+{
+  echo "<!-- cdr:pr-review verdict=$verdict head=$(cat "$d/head") -->"
+  echo "## PR review: $title"
+  echo
+  echo "**Verdict: \`$verdict\`.** $what"
+  echo
+  echo "$totals"
+  echo
+  jq -r .comment "$review"
+} > "$body"
+url=$(gh pr comment "$(cat "$d/pr")" -R "$(cat "$d/repo")" --body-file "$body")
+echo "verdict=$verdict"
+echo "url=$url"
