@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Usage: pr-review-context <pr>   Run in a checkout of the PR's repository. Env: REPO (owner/name; default: the
-# checkout's GitHub repository). Writes the pr-review skill's inputs to .review/: repo, pr, head, pr.md, pr.diff,
+# checkout's GitHub repository), BASE_SHA and HEAD_SHA (default: the PR's current ones; CI passes its event's, so a
+# re-run of an older run reviews and labels the commits it checked out). Writes the pr-review skill's inputs to .review/: repo, pr, head, pr.md, pr.diff,
 # comments.md and issues.md. The diff is git's (base...head), not GitHub's, which refuses large diffs; the two commits
 # are fetched when the checkout lacks them.
 set -euo pipefail
@@ -14,8 +15,8 @@ exclude=$(git rev-parse --git-path info/exclude)
 grep -qx '/.review/' "$exclude" 2>/dev/null || echo '/.review/' >> "$exclude"
 
 pr=$(gh pr view "$PR" -R "$REPO" --json title,body,baseRefOid,headRefOid)
-base=$(jq -r .baseRefOid <<<"$pr")
-head=$(jq -r .headRefOid <<<"$pr")
+base=${BASE_SHA:-$(jq -r .baseRefOid <<<"$pr")}
+head=${HEAD_SHA:-$(jq -r .headRefOid <<<"$pr")}
 echo "$REPO" > "$d/repo"
 echo "$PR" > "$d/pr"
 echo "$head" > "$d/head"

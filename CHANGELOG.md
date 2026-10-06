@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 (2026-10-06)
+
+- `pr-review-context` takes `BASE_SHA` and `HEAD_SHA` (CI: the event's). Before, it always read the PR's live head,
+  so a re-run of an older run after a push reviewed the old checkout but labelled it with the new head.
+
 ## 0.4.0 (2026-10-06)
 
 - **`/cdr:pr-review <N>`** (Codex: `$cdr:pr-review <N>`), a PR review that runs in Claude Code, Codex and CI. A
