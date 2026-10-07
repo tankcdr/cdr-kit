@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 (2026-10-06)
+
+- ship-epic: the implementer reports a deliberate red run (a regression test failing with the fix removed) in
+  `redProofs`, not `ran`. Before, that red entry made the build read as not green, so QA was skipped and the lead's
+  `done` was turned back into `implement` until the issue ran out of rounds.
+
 ## 0.4.1 (2026-10-06)
 
 - `pr-review-context` takes `BASE_SHA` and `HEAD_SHA` (CI: the event's). Before, it always read the PR's live head,

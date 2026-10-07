@@ -134,7 +134,7 @@ const ACCEPT = obj({ line: STR, check: STR, kind: { type: 'string', enum: ['test
 const DOC_BRIEF = obj({ file: STR, section: STR, reader: STR, source: STR })
 const TEAM_PLAN = obj({ base: STR, summary: STR, steps: STRS, files: STRS, acceptance: arr(ACCEPT), verify: STRS, docs: arr(DOC_BRIEF), blocked: STR })
 const TESTS = obj({ sha: STR, files: STRS, ran: arr(RAN), failsFor: arr(obj({ test: STR, reason: STR })), blockers: STRS })
-const IMPL = obj({ changed: arr(obj({ file: STR, change: STR })), ran: arr(RAN), deviations: STRS, blockers: STRS })
+const IMPL = obj({ changed: arr(obj({ file: STR, change: STR })), ran: arr(RAN), redProofs: arr(RAN), deviations: STRS, blockers: STRS })
 const DOCS = obj({ sha: STR, edited: arr(obj({ file: STR, change: STR })), notDocumented: STRS })
 const QA = obj({ items: arr(obj({ severity: { type: 'string', enum: ['blocker', 'major', 'minor'] }, where: STR, problem: STR, fix: STR })), ran: arr(RAN), tried: STR })
 const LEAD = obj({ next: { type: 'string', enum: ['tests', 'implement', 'docs', 'done'] }, items: arr(FIX), rejected: arr(obj({ problem: STR, reason: STR })), blocked: STR, summary: STR, note: STR })
@@ -292,6 +292,7 @@ ${taskSource(task)}
 
 Commit your work before you report, so QA and review see it: stage only this task's files (code, tests${P.contract ? ', the regenerated contract artifacts' : ''}; never build output or .tools), in the style of ${GIT} -C ${task.wt} log --oneline -15, no co-author trailer. ${first ? 'One commit for the build, "<type>(<scope>): <what> (' + (task.issue ? '#' + task.issue : 'epic #' + EPIC) + ')"' : 'One commit per item fixed'}; work an earlier attempt left uncommitted goes in too. Nothing of the task may stay uncommitted.
 Run every verify command before you report, and read the output, except ${gate('smoke', task.wt)}: QA runs that once.
+"ran" lists only the verify commands on your final code, each one you expect to pass. A run that shows a test failing on purpose (a regression test with the fix removed) goes in "redProofs", never in "ran": a failed entry in "ran" means the build is not green and QA is skipped.
 
 ${RULES}`
 }
