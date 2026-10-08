@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 (2026-10-08)
+
+- ship-epic: setup drops the integration worktree if the setup agent lists it among the track slots, and the
+  prompt says slots are the track worktrees only. Before, a single-issue run (arcgate #281) failed with "asked for
+  1 track worktrees, got 2".
+
 ## 0.5.1 (2026-10-07)
 
 - ship-init: drafts the optional `followUpLabel` (from 0.5.0) from the repo's labels, picking a "ready for agent"

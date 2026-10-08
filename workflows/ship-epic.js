@@ -223,7 +223,7 @@ function setupPrompt(slots) {
    - Neither: ${GIT} -C ${ROOT} worktree add -b ${EPIC_BRANCH} ${EPIC_WT} origin/${BASE}
 3. ${slotStep}
 4. In the integration worktree and every track worktree (<wt>; <root> is ${ROOT}): ${P.setup.split('<root>').join(ROOT)}
-5. Report ok, problem (empty when ok), stamp, slots in order (path and branch), epicHead (${GIT} -C ${EPIC_WT} rev-parse HEAD) and ahead (${GIT} -C ${EPIC_WT} rev-list --count origin/${BASE}..HEAD).
+5. Report ok, problem (empty when ok), stamp, slots in order (path and branch: only the track worktrees from step 3, never the integration worktree ${EPIC_WT}), epicHead (${GIT} -C ${EPIC_WT} rev-parse HEAD) and ahead (${GIT} -C ${EPIC_WT} rev-list --count origin/${BASE}..HEAD).
 
 Touch nothing else: not the main checkout's files, not other worktrees or branches.
 
@@ -678,6 +678,8 @@ phase('Setup')
 const slotCount = Math.max(0, ...plan.stages.map((s) => s.tracks.length))
 const setup = need(await agent(setupPrompt(slotCount), { model: 'sonnet', effort: 'medium', agentType: 'general-purpose', label: 'setup', schema: SETUP }), 'setup')
 if (!setup.ok) return { epic: EPIC, outcome: 'setup-failed', problem: setup.problem }
+// The setup agent sometimes lists the integration worktree among the slots: it is not a track.
+setup.slots = setup.slots.filter((s) => s.path.replace(/\/+$/, '') !== EPIC_WT.replace(/\/+$/, ''))
 if (setup.slots.length !== slotCount) return { epic: EPIC, outcome: 'setup-failed', problem: 'asked for ' + slotCount + ' track worktrees, got ' + setup.slots.length }
 if (!plan.issues.length && setup.ahead === 0) return { epic: EPIC, outcome: 'nothing-to-ship', skipped: plan.skipped }
 const worktrees = [EPIC_WT].concat(setup.slots.map((s) => s.path))
