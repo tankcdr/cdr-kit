@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1 (2026-10-07)
+
+- ship-init: drafts the optional `followUpLabel` (from 0.5.0) from the repo's labels, picking a "ready for agent"
+  style label when one exists, and asks only when several could be it.
+
 ## 0.5.0 (2026-10-07)
 
 - ship-epic: QA runs at most twice per issue (`QA_ROUNDS`): a full hunt, then one pass that only verifies the

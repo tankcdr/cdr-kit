@@ -37,6 +37,9 @@ Fill every field you can from the repo, and note where each value came from:
   generated paths, `refresh` the command, `when` the changes that need it, `rules` where examples come from.
 - `rules`: toolchain quirks a fresh agent would trip on (a monorepo `-C` convention, long commands that need the
   600000 ms Bash timeout, a submodule setting).
+- `followUpLabel` (optional): the label for issues ship-epic files from pre-existing or out-of-scope QA findings, so
+  agents pick them up. From `gh label list --json name`: a "ready for agent" style label (`ready-for-agent`, a
+  triage doc in the repo naming one) when it exists; leave it out when none does.
 - `blockingRules`: the feedback memories in `~/.claude/projects/<root with non-alphanumerics as ->/memory/` that
   name a must-fix review finding, one short phrase each.
 
@@ -48,6 +51,7 @@ Show the draft as JSON, then ask the user, with AskUserQuestion, only what the s
 - Known flaky check failures (`review.flakes`): exact error text, so a triager can match them.
 - `smokeWhen`, if there is a smoke suite: which changes need it.
 - `contract.rules`, if there is a contract: how examples are produced (recorded, captured, written by hand).
+- `followUpLabel`, if the repo has several candidate labels and none is clearly the agent-ready one.
 - Which workflow is which, if more than one runs on PRs.
 
 ## Write
