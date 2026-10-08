@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 (2026-10-07)
+
+- ship-epic: QA runs at most twice per issue (`QA_ROUNDS`): a full hunt, then one pass that only verifies the
+  fixes. An item the lead still sends back after the last pass stops the issue for a human with its open items,
+  instead of another round. `TEAM_ROUNDS` drops from 8 to 6. Before, the lead could send QA back for a fresh hunt
+  every round, and on arcgate #282 it ran six implement and QA rounds.
+- ship-epic: QA tags every finding `introduced`, `pre-existing` or `out-of-scope`. The lead fixes only what the change
+  introduced, and files the rest as issues (`followUpLabel` in the profile, optional), which the PR body lists under
+  "Not in this PR (filed)". Before, out-of-scope findings were rejected without a ticket and only mentioned in the PR body.
+- ship-epic: QA gets the items the lead already rejected or filed, and raises them again only with new evidence.
+- ship-epic: the profile loader accepts the profile escaped once more (literal `\n` and `\"`), which the loading
+  agent sometimes returns; before, that failed the run with "did not parse as the loader returned it".
+
 ## 0.4.2 (2026-10-06)
 
 - ship-epic: the implementer reports a deliberate red run (a regression test failing with the fix removed) in

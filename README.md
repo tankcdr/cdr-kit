@@ -56,13 +56,17 @@ Then run `/reload-plugins` in any open session.
    stages of up to 3 parallel tracks. A Fable advisor reviews the plan before any code is written.
 2. **Setup.** An integration worktree on `epic/N` and one worktree per parallel track, under
    `.claude/worktrees/`, each prepared with the profile's `setup` steps.
-3. **Build.** Per issue, an Opus lead plans and then picks and judges every step, up to 8. QA is the one review
+3. **Build.** Per issue, an Opus lead plans and then picks and judges every step, up to 6. QA is the one review
    layer, and runs the smoke gate once; the lead's done merges the issue into `epic/N`:
    - **Tests first.** `cdr:sonnet-implementer` writes and commits the tests for each Done-when line a test can
      prove, and the lead checks they fail for the right reason. Any suite counts (unit, integration, end to end); only lines
      that a gate run or an owner step alone can prove skip it, with why.
    - **Build.** `cdr:sonnet-implementer` makes those tests pass without changing them (it may add cases), and
-     `cdr:opus-adversary` tries to break it once its verification is green.
+     `cdr:opus-adversary` tries to break it once its verification is green. QA runs at most twice: a full hunt,
+     then one pass that only verifies the fixes. QA tags each finding `introduced`, `pre-existing` or
+     `out-of-scope`; the lead fixes only what the change introduced and files the rest as issues (they go in the
+     PR body), and QA never re-raises what the lead already rejected or filed. An open item after the last pass
+     stops the issue for a human instead of another round.
    - **Docs.** `cdr:haiku-documentor` writes the docs from the lead's brief, which names what each doc must tell a
      reader and where any example comes from. The lead checks the docs against the code.
 
@@ -136,6 +140,7 @@ Committed in the repository. In commands, `<wt>` is the worktree the command run
 | `review.flakes` | Known flaky check failures, which get a rerun instead of a code change. |
 | `planNotes` | Optional: a note for the planner (e.g. who else opens PRs). |
 | `prBodyModel` | Optional: a PR number whose body the epic PR follows. |
+| `followUpLabel` | Optional: the label ship-epic puts on the issues it files for pre-existing or out-of-scope QA findings (e.g. `ready-for-agent`). |
 | `contract` | Optional `{ "when", "files", "refresh", "rules" }`: generated contract artifacts (an OpenAPI document, captured examples). When a change matches `when`, the implementer runs `refresh` and commits `files`; the documenter never edits them; QA and review check both. `rules` is optional extra guidance, e.g. where examples come from. |
 
 Example, for a pnpm monorepo:

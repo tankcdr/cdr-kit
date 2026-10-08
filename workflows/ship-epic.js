@@ -26,7 +26,8 @@ export const meta = {
 
 // Settings
 const MAX_TEAMS = 3 // parallel tracks in one stage
-const TEAM_ROUNDS = 8 // steps per issue (tests, implement + QA, docs), each judged by the lead, before it counts as stuck
+const TEAM_ROUNDS = 6 // steps per issue (tests, implement + QA, docs), each judged by the lead, before it counts as stuck
+const QA_ROUNDS = 2 // QA passes per issue: one full hunt, then one that only verifies the fixes; past it, an open item stops the issue
 const FIX_ROUNDS = 5 // PR review fix attempts
 const CHECKS_PER_WAIT = 14 // 8-minute checks per review wait: about 110 minutes, wait-review's own limit
 const NO_RUN_CHECKS = 2 // checks in a row without a review run on the head: the review isn't running
@@ -52,7 +53,12 @@ ok is true when every step worked. Change nothing.`, { model: 'haiku', agentType
 if (!loaded || !loaded.ok) throw new Error('ship-epic could not load the repo profile: ' + (loaded ? loaded.problem : 'the loader returned nothing'))
 let P
 try {
-  P = JSON.parse(loaded.profileJson)
+  try {
+    P = JSON.parse(loaded.profileJson)
+  } catch {
+    // The loader can return the file escaped once more (literal \n and \"): undo that level.
+    P = JSON.parse(JSON.parse('"' + loaded.profileJson + '"'))
+  }
 } catch (e) {
   throw new Error(loaded.root + '/.claude/ship-profile.json did not parse as the loader returned it (' + e.message + '); check the file with jq . and re-run')
 }
@@ -136,8 +142,8 @@ const TEAM_PLAN = obj({ base: STR, summary: STR, steps: STRS, files: STRS, accep
 const TESTS = obj({ sha: STR, files: STRS, ran: arr(RAN), failsFor: arr(obj({ test: STR, reason: STR })), blockers: STRS })
 const IMPL = obj({ changed: arr(obj({ file: STR, change: STR })), ran: arr(RAN), redProofs: arr(RAN), deviations: STRS, blockers: STRS })
 const DOCS = obj({ sha: STR, edited: arr(obj({ file: STR, change: STR })), notDocumented: STRS })
-const QA = obj({ items: arr(obj({ severity: { type: 'string', enum: ['blocker', 'major', 'minor'] }, where: STR, problem: STR, fix: STR })), ran: arr(RAN), tried: STR })
-const LEAD = obj({ next: { type: 'string', enum: ['tests', 'implement', 'docs', 'done'] }, items: arr(FIX), rejected: arr(obj({ problem: STR, reason: STR })), blocked: STR, summary: STR, note: STR })
+const QA = obj({ items: arr(obj({ severity: { type: 'string', enum: ['blocker', 'major', 'minor'] }, origin: { type: 'string', enum: ['introduced', 'pre-existing', 'out-of-scope'] }, where: STR, problem: STR, fix: STR })), ran: arr(RAN), tried: STR })
+const LEAD = obj({ next: { type: 'string', enum: ['tests', 'implement', 'docs', 'done'] }, items: arr(FIX), rejected: arr(obj({ problem: STR, reason: STR })), filed: arr(obj({ number: INT, title: STR })), blocked: STR, summary: STR, note: STR })
 const MERGE = obj({ ok: BOOL, problem: STR, commit: STR, epicHead: STR, fastForward: BOOL, conflicts: STRS, ran: arr(RAN) })
 const EPIC_CHECK = obj({
   devMerge: STR,
@@ -311,11 +317,15 @@ The code: ${GIT} -C ${task.wt} diff ${plan.base}
 ${P.contract ? '- Never edit ' + P.contract.files.join(', ') + ': they are generated.\n' : ''}Report sha (your commit; empty if you edited nothing), edited and notDocumented.`
 }
 
-function qaPrompt(task, plan, tests, items) {
+function qaPrompt(task, plan, tests, items, pass, decided) {
   const again = items.length ? 'Your lead sent these items to the implementer last; check each is really fixed:\n' + fixList(items) + '\n' : ''
+  const scope = pass > 1
+    ? 'This is QA pass ' + pass + ' of ' + QA_ROUNDS + ', the last: verify only. Check the items above are fixed, and that the commits since your last pass (' + GIT + ' -C ' + task.wt + ' log ' + plan.base + '..HEAD) broke nothing they touch. Do not hunt the rest of the change again.\n'
+    : 'This is QA pass 1 of ' + QA_ROUNDS + ': the full hunt. Pass ' + QA_ROUNDS + ' only verifies the fixes, so raise everything now.\n'
+  const settled = decided.length ? 'Already decided, so raise none of these again unless you have new evidence:\n' + list(decided) + '\n' : ''
   const contract = contractLine(task.wt)
   return `Try to break ${task.key} (${task.title}), built for epic #${EPIC} in worktree ${task.wt} on top of commit ${plan.base}. The changes are committed: ${GIT} -C ${task.wt} log ${plan.base}..HEAD lists them and ${GIT} -C ${task.wt} diff ${plan.base} shows them. Task work left uncommitted (${GIT} -C ${task.wt} status --porcelain) is a major item.
-${again}
+${scope}${again}${settled}
 ${taskSource(task)}
 Acceptance:
 ${acceptList(plan)}
@@ -323,6 +333,7 @@ Verify commands (run them yourself and read the output; you are the only one who
 ${list(plan.verify)}
 ${tests.sha ? 'The tests written first are the spec: ' + GIT + ' -C ' + task.wt + ' diff ' + tests.sha + ' HEAD -- ' + tests.files.join(' ') + ' may only add lines. A changed or deleted assertion is a major item.\n' : ''}${contract ? contract + ' A change to a route, request or response without them regenerated is a major item; so is a hand edit to one.\n' : ''}
 Severity: blocker (wrong behaviour, money, security, data loss), major (a Done when not met, a test that proves nothing, a second implementation), minor (worth fixing now, wouldn't block a merge). No style nits.
+Origin, for every item: introduced (this change causes it: it is absent on ${plan.base}), pre-existing (the same behaviour on ${plan.base}; say how you checked) or out-of-scope (real, but another part of the code the task doesn't own).
 
 ${RULES}`
 }
@@ -331,7 +342,7 @@ function leadPrompt(task, plan, round, journal, tests, step) {
   const docsNext = plan.docs.length ? '"docs"' : '"done" (the plan names no docs)'
   const what = {
     tests: () => 'The tests step just reported:\n' + show(step.report) + '\nCheck the tests yourself: ' + GIT + ' -C ' + task.wt + ' diff ' + plan.base + ' HEAD -- ' + (tests.files.join(' ') || '<the files above>') + ', and run them. Each must encode its acceptance line, would fail against a wrong implementation, mocks nothing it tests, and fails now for the right reason: a failed assertion or the missing export the plan names, not a typo, a wrong path or a broken fixture. All sound: next "implement". Otherwise next "tests", with the items.',
-    implement: () => 'Implementer:\n' + show(step.impl) + '\nQA: ' + (step.qa ? show(step.qa) : "(skipped: the implementer's verification was not green, or it ran none)") + '\nEach QA item: accept it (real and in scope; check the code when that isn\'t obvious) or reject it with the reason. Failing verification is an accepted item; so is an implementer blocker you can settle (settle it in the item). A deviation that calls a test wrong: read the test. Wrong: next "tests", with the change as the item. Right: it stays, and an item says so. Code accepted (QA ran, verification green, nothing accepted): next ' + docsNext + '. Otherwise next "implement", with the items.',
+    implement: () => 'Implementer:\n' + show(step.impl) + '\nQA (pass ' + step.qaPass + ' of ' + QA_ROUNDS + '): ' + (step.qa ? show(step.qa) : "(skipped: the implementer's verification was not green, or it ran none)") + '\nEach QA item: accept it (real, origin introduced; check the code when that isn\'t obvious), file it, or reject it with the reason. A real item that is pre-existing or out-of-scope is never a fix item: file it as an issue (gh issue create -R ' + REPO + ' --title <what> --body <where, problem, fix, how QA showed it>' + (P.followUpLabel ? ' --label ' + P.followUpLabel : '') + ') and list it in filed. ' + (step.qaPass >= QA_ROUNDS ? 'That was the last QA pass: another "implement" stops this issue for a human with your items, so send one only for something this change introduced and must not ship with.' : '') + ' Failing verification is an accepted item; so is an implementer blocker you can settle (settle it in the item). A deviation that calls a test wrong: read the test. Wrong: next "tests", with the change as the item. Right: it stays, and an item says so. Code accepted (QA ran, verification green, nothing accepted): next ' + docsNext + '. Otherwise next "implement", with the items.',
     docs: () => 'The documenter reported:\n' + show(step.docs) + '\nRead the docs diff yourself (' + (step.docs.sha ? GIT + ' -C ' + task.wt + ' show ' + step.docs.sha : 'nothing was committed') + ') against the code and your brief. An item for each claim the code doesn\'t back, each example or value not copied from a test, fixture or capture, each generated file edited by hand, each brief entry left unwritten without a sound reason. Sound: next "done". Otherwise next "docs", with the items, or "implement" when the docs exposed a gap in the code.',
   }[step.kind]()
   return `You lead the team on ${task.key} (${task.title}) in worktree ${task.wt}: a Sonnet implementer who also writes the tests, a Haiku documenter and an Opus adversarial QA. You planned it, and you pick each next step. Round ${round} of at most ${TEAM_ROUNDS}.
@@ -344,7 +355,7 @@ ${list(journal)}
 
 This round: ${what}
 
-Report next, items (where, problem, fix; one owner each), rejected (QA items you reject, with the reason), blocked (empty, unless a human must decide something before this can be built; then what), summary (what the change does now, in three sentences, for the PR) and note (what your next round needs that the items don't say).
+Report next, items (where, problem, fix; one owner each), rejected (QA items you reject, with the reason), filed (the issues you opened this round, number and title), blocked (empty, unless a human must decide something before this can be built; then what), summary (what the change does now, in three sentences, for the PR) and note (what your next round needs that the items don't say).
 "done" merges the task: only when QA passed the code, every Done when line is met (or is an owner step after deploy, which the PR lists), and the docs are written and checked. There is no review after you: you are the last check before the merge. An item back for the second time without progress, or a call you can't make: spawn subagent_type "cdr:advisor" (Fable) for that one decision.
 
 ${RULES}`
@@ -407,7 +418,7 @@ Body${P.prBodyModel ? ', modelled on PR #' + P.prBodyModel + ' (gh pr view ' + P
 - One line on what it implements.
 - A closing keyword before every issue it delivers: "Closes #a, closes #b, ..." (a comma list closes only the first). Delivered: the issues below, plus any child the plan skipped as already on the epic branch. "Closes #${EPIC}" too only if no open child of the epic is left undelivered. Children it doesn't deliver: "Refs", and why.
 - What's in it: one bullet per issue, from the summaries below.
-- Deliberate behaviour worth knowing, and known follow-ups, if there are any.
+- Deliberate behaviour worth knowing, and known follow-ups: every issue in an issue's followUps below, as "#n title", under a "Not in this PR (filed)" heading.
 - Verification: the gate results below.
 - One line: each issue was built test-first by a team (a lead who planned and judged every step, an implementer, a documenter and an adversarial QA) before it merged into the ${KIND} branch.
 No Claude attribution in the title or the body.
@@ -572,6 +583,9 @@ async function teamLoop(task) {
   let docsDone = !plan.docs.length // the docs match the accepted code
   let summary = plan.summary
   let checked = [] // the commands QA ran on the accepted code, for the PR
+  let qaPasses = 0 // QA runs so far: the first hunts, the last only verifies (QA_ROUNDS)
+  const decided = [] // QA items the lead rejected or filed, so QA doesn't raise them again
+  const followUps = [] // issues the lead filed for pre-existing or out-of-scope findings, for the PR
   for (let round = 1; round <= TEAM_ROUNDS; round++) {
     const step = { kind: next }
     let outcome
@@ -585,7 +599,8 @@ async function teamLoop(task) {
       built = true
       docsDone = !plan.docs.length
       const green = step.impl.ran.length > 0 && step.impl.ran.every((r) => r.passed) && !step.impl.blockers.length
-      step.qa = green ? need(await agent(qaPrompt(task, plan, tests, items), { model: 'opus', effort: 'high', agentType: 'cdr:opus-adversary', label: task.key + ' QA ' + round, phase: task.phase, schema: QA }), task.key + ' QA') : null
+      if (green) step.qaPass = ++qaPasses
+      step.qa = green ? need(await agent(qaPrompt(task, plan, tests, items, qaPasses, decided), { model: 'opus', effort: 'high', agentType: 'cdr:opus-adversary', label: task.key + ' QA ' + round, phase: task.phase, schema: QA }), task.key + ' QA') : null
       outcome = step.impl.changed.length + ' file(s) changed, verification ' + (green ? 'green, QA raised ' + step.qa.items.length + ' item(s)' : 'not green, QA skipped')
     } else if (next === 'docs') {
       step.docs = need(await agent(docsPrompt(task, plan, summary, items), { model: 'haiku', agentType: 'cdr:haiku-documentor', label: task.key + ' document ' + round, phase: task.phase, schema: DOCS }), task.key + ' documenter')
@@ -594,19 +609,24 @@ async function teamLoop(task) {
     const lead = need(await agent(leadPrompt(task, plan, round, journal, tests, step), { model: 'opus', effort: 'high', agentType: 'general-purpose', label: task.key + ' lead ' + round, phase: task.phase, schema: LEAD }), task.key + ' lead')
     if (lead.blocked) return { status: 'stuck', reason: 'lead: ' + lead.blocked, rounds: round }
     if (lead.summary) summary = lead.summary
+    followUps.push(...lead.filed)
+    decided.push(...lead.rejected.map((r) => r.problem + ' (rejected: ' + r.reason + ')'), ...lead.filed.map((f) => '#' + f.number + ' ' + f.title + ' (filed as a follow-up)'))
     next = lead.next
+    // Past the last QA pass, another fix round is a handoff, not a loop.
+    if (step.kind === 'implement' && step.qa && qaPasses >= QA_ROUNDS && next === 'implement')
+      return { status: 'stuck', reason: 'QA cap (' + QA_ROUNDS + ' passes) reached with open items: ' + lead.items.map((f) => f.problem).join('; '), rounds: round, followUps }
     if (step.kind === 'tests' || step.kind === 'implement') codeDone = step.kind === 'implement' && !!step.qa && (next === 'docs' || next === 'done')
     if (codeDone && step.kind === 'implement') checked = step.qa.ran
     if (step.kind === 'docs' && next === 'done') docsDone = true
     // Docs and done only follow code QA ran on and the lead accepted; done only follows checked docs.
     if ((next === 'docs' || next === 'done') && !codeDone) next = 'implement'
     if (next === 'done' && !docsDone) next = 'docs'
-    if (next === 'done') return { status: 'done', rounds: round, summary, ran: checked }
+    if (next === 'done') return { status: 'done', rounds: round, summary, ran: checked, followUps }
     items = lead.items
     journal.push('Round ' + round + ', ' + step.kind + ': ' + outcome + '. Next: ' + next + ' with ' + items.length + ' item(s)' + (lead.rejected.length ? ', ' + lead.rejected.length + ' QA item(s) rejected' : '') + '.' + (lead.note ? ' Note: ' + lead.note : ''))
     log(task.key + ': round ' + round + ' (' + step.kind + ') -> ' + next + ', ' + items.length + ' item(s)')
   }
-  return { status: 'stuck', reason: 'not done after ' + TEAM_ROUNDS + ' rounds; next was ' + next + ', open: ' + (items.map((f) => f.problem).join('; ') || 'none'), rounds: TEAM_ROUNDS }
+  return { status: 'stuck', reason: 'not done after ' + TEAM_ROUNDS + ' rounds; next was ' + next + ', open: ' + (items.map((f) => f.problem).join('; ') || 'none'), rounds: TEAM_ROUNDS, followUps }
 }
 
 // One track: its issues in order, each merged into the epic branch before the next starts.
@@ -624,7 +644,7 @@ async function runTrack(track, slot) {
         if (!m.ok) {
           stop = 'merge: ' + m.problem
         } else {
-          done.push({ number: info.number, title: info.title, rounds: r.rounds, commit: m.commit, summary: r.summary, ran: r.ran })
+          done.push({ number: info.number, title: info.title, rounds: r.rounds, commit: m.commit, summary: r.summary, ran: r.ran, followUps: r.followUps })
           log(task.key + ' merged into ' + EPIC_BRANCH + ' (' + m.commit.slice(0, 9) + ', ' + r.rounds + ' team round(s))')
         }
       }
